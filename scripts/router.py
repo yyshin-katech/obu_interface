@@ -7,6 +7,7 @@ import json
 import struct
 import threading
 import datetime
+from pyproj import Proj, transform
 
 #from socket import *
 import socket
@@ -37,6 +38,7 @@ PORT = 9100
 # HOST = '192.168.1.55'
 # PORT = 9100
 
+utm_zone = 52
 
 Header = []
 packet_seq = {0, 0, 0, 0}
@@ -71,6 +73,7 @@ def localization_callback(msg):
    local.east = msg.east
    local.north = msg.north
    local.yaw = msg.yaw
+   local.vel = msg.vel
 
 class PVD_encoding_Thread(threading.Thread):
     def __init__(self, client_socket):
@@ -92,6 +95,13 @@ class PVD_encoding_Thread(threading.Thread):
         self.hour = 0
         self.minute = 0
         self.second = 0
+#        self.utm_to_wgs84 = Proj(init='epsg:32651')
+  
+    def utm_to_wgs84(self, utm_easting, utm_northing, utm_zone):
+      utm_proj = Proj(proj='utm', zone=utm_zone, ellps='WGS84')
+      wgs84_proj = Proj(proj='latlong', datum='WGS84')
+      wgs84_longitude, wgs84_latitude = transform(utm_proj, wgs84_proj, utm_easting, utm_northing)
+      return wgs84_longitude, wgs84_latitude
 
     def Encoding_Header(self, Header):
         self.Header = Header
@@ -100,7 +110,7 @@ class PVD_encoding_Thread(threading.Thread):
         self.pvd_packet_seq += 1
 
         self.timestamp = struct.pack('>q', self.timestamepq)
-        self.timestamepq = timeref.time_ref.secs - 32400
+        self.timestamepq = rospy.Time.now().to_sec() - 32400
         self.time_ref_datetime = datetime.datetime.fromtimestamp(self.timestamepq)
         self.month = self.time_ref_datetime.month
         self.day = self.time_ref_datetime.day
@@ -108,25 +118,41 @@ class PVD_encoding_Thread(threading.Thread):
         self.minute = self.time_ref_datetime.minute
         self.second = self.time_ref_datetime.second
         
-        data['thePosition']['utcTime']['year'] = 2023
+        data['thePosition']['utcTime']['year'] = 2024
         data['thePosition']['utcTime']['month'] = self.month
         data['thePosition']['utcTime']['day'] = self.day
         data['thePosition']['utcTime']['hour'] = self.hour
         data['thePosition']['utcTime']['minute'] = self.minute
         data['thePosition']['utcTime']['second'] = self.second
 
-        print(self.month)
-        print(self.day)
-        print(self.hour)
-        print(self.minute)
-        print(self.second)
+        # print(self.month)
+        # print(self.day)
+        # print(self.hour)
+        # print(self.minute)
+        # print(self.second)
 
-        self.latitude = int(fix.latitude * 10000000)
-        self.longitude = int(fix.longitude * 10000000)
-        data['thePosition']['lat'] = self.latitude
-        data['thePosition']['long'] = self.longitude
-        data['thePosition']['elevation'] = int(fix.altitude * 10)
+        # self.latitude = int(fix.latitude * 10000000)
+        # self.longitude = int(fix.longitude * 10000000)
+        # data['thePosition']['lat'] = self.latitude
+        # data['thePosition']['long'] = self.longitude
+        # data['thePosition']['elevation'] = int(fix.altitude * 10)
+              
+        # self.wgs84_longitude, self.wgs84_latitude = self.utm_to_wgs84(local.east, local.north)
+        self.wgs84_longitude, self.wgs84_latitude = self.utm_to_wgs84(local.east, local.north, utm_zone)
 
+        # print(local.east)
+        # print(local.north)
+
+        # print(self.wgs84_longitude * 10000000)
+        # print(self.wgs84_latitude * 10000000)
+        data['thePosition']['lat'] = int(self.wgs84_latitude * 10000000)
+        data['thePosition']['long'] = int(self.wgs84_longitude * 10000000)
+        data['thePosition']['heading'] = int(local.yaw * 180/3.14)
+        data['thePosition']['elevation'] = 23
+        data['thePosition']['speed']['speed'] = int(local.vel * 3.6 * 20)
+
+        print(data['thePosition']['lat'])
+        print(data['thePosition']['long'])
         pvd_string = json.dumps(data).encode('UTF-8')
         self.packet_type = struct.pack('B',21)  # PVD
 
