@@ -7,6 +7,7 @@ import json
 import struct
 import threading
 import datetime
+import math
 from pyproj import Proj, transform
 
 #from socket import *
@@ -68,6 +69,9 @@ def chassis_callback(msg):
    chassis.speed = msg.speed
    chassis.ax = msg.ax
    chassis.ay = msg.ay
+   chassis.right_turn_signal = msg.right_turn_signal
+   chassis.left_turn_signal = msg.left_turn_signal
+   chassis.hazard_signal = msg.hazard_signal
 
 def localization_callback(msg):
    local.east = msg.east
@@ -83,7 +87,7 @@ class PVD_encoding_Thread(threading.Thread):
         # rospy.Subscriber("time_reference", TimeReference, timeref_callback)
         # rospy.Subscriber("fix", NavSatFix, fix_callback)
 
-        rospy.Subscriber("/sensor/chassis", chassis_msg, chassis_callback)
+        rospy.Subscriber("/sensors/chassis", chassis_msg, chassis_callback)
         rospy.Subscriber("/udp/localization", localization2D_msg_bus, localization_callback)
         
         self.client = client_socket
@@ -147,12 +151,27 @@ class PVD_encoding_Thread(threading.Thread):
         # print(self.wgs84_latitude * 10000000)
         data['thePosition']['lat'] = int(self.wgs84_latitude * 10000000)
         data['thePosition']['long'] = int(self.wgs84_longitude * 10000000)
-        data['thePosition']['heading'] = int(local.yaw * 180/3.14)
-        data['thePosition']['elevation'] = 23
-        data['thePosition']['speed']['speed'] = int(local.vel * 3.6 * 20)
+        self.rad_temp = (-local.yaw + math.pi / 2) % (2 * math.pi) 
 
-        print(data['thePosition']['lat'])
-        print(data['thePosition']['long'])
+        self.heading_temp = (math.degrees(self.rad_temp))
+        # if self.heading_temp > 360.0:
+        #    self.heading_temp = self.heading_temp - 180.0
+
+        data['thePosition']['heading'] = int(self.heading_temp * 80)
+        data['thePosition']['elevation'] = 23
+        data['thePosition']['speed']['speed'] = int(chassis.speed * 50)
+
+        # print(data['thePosition']['lat'])
+        # print(data['thePosition']['long'])
+        # print(data['thePosition']['heading'])
+        # print(self.rad_temp)
+        print(self.heading_temp)
+        print("  ")
+
+        data['dataSet']['lights']['rightTurnSignalOn'] = int(chassis.right_turn_signal)
+        data['dataSet']['lights']['leftTurnSignalOn'] = int(chassis.left_turn_signal)
+        data['dataSet']['lights']['hazardSignalOn'] = int(chassis.hazard_signal)
+        
         pvd_string = json.dumps(data).encode('UTF-8')
         self.packet_type = struct.pack('B',21)  # PVD
 
